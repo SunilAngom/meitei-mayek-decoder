@@ -60,7 +60,6 @@ def decode_text(text, mapping):
 
 
 def pdf_viewer(file_bytes, height=720):
-    """Embed PDF using browser native viewer — supports text selection and copy."""
     b64 = base64.b64encode(file_bytes).decode("ascii")
     components.html(f"""<!DOCTYPE html>
 <html>
@@ -68,22 +67,12 @@ def pdf_viewer(file_bytes, height=720):
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 html,body{{height:100%;overflow:hidden}}
-body{{background:#404040;display:flex;flex-direction:column}}
-#pdf-frame{{flex:1;width:100%;border:none;display:block}}
+body{{background:#404040}}
+embed{{width:100%;height:{height}px;display:block;border:none}}
 </style>
 </head>
 <body>
-<iframe id="pdf-frame" src=""></iframe>
-<script>
-(function(){{
-  var b64="{b64}";
-  var bin=atob(b64);
-  var buf=new Uint8Array(bin.length);
-  for(var i=0;i<bin.length;i++) buf[i]=bin.charCodeAt(i);
-  var blob=new Blob([buf],{{type:'application/pdf'}});
-  document.getElementById('pdf-frame').src=URL.createObjectURL(blob);
-}})();
-</script>
+<embed src="data:application/pdf;base64,{b64}" type="application/pdf" width="100%" height="{height}">
 </body>
 </html>""", height=height, scrolling=False)
 
