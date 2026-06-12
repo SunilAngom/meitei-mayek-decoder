@@ -66,8 +66,19 @@ def pdf_viewer(file_bytes, height=720):
 <head>
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
-html,body{{height:100%;background:#525659;overflow-y:auto}}
-#viewer{{padding:10px;display:flex;flex-direction:column;align-items:center}}
+html,body{{height:100%;background:#525659;display:flex;flex-direction:column;overflow:hidden}}
+#toolbar{{
+  background:#3a3a3a;padding:6px 10px;display:flex;align-items:center;
+  gap:8px;flex-shrink:0;border-bottom:1px solid #222;
+}}
+#toolbar button{{
+  background:#555;color:#eee;border:none;border-radius:4px;
+  padding:3px 10px;cursor:pointer;font-size:15px;font-weight:bold;
+}}
+#toolbar button:hover{{background:#777}}
+#zoom-label{{color:#ddd;font-family:sans-serif;font-size:13px;min-width:44px;text-align:center}}
+#scroll{{flex:1;overflow-y:auto;padding:10px}}
+#viewer{{display:flex;flex-direction:column;align-items:center}}
 .page-wrap{{position:relative;margin-bottom:10px;box-shadow:0 2px 10px rgba(0,0,0,.6)}}
 .page-wrap canvas{{display:block}}
 .textLayer{{
@@ -84,20 +95,36 @@ html,body{{height:100%;background:#525659;overflow-y:auto}}
 </style>
 </head>
 <body>
-<div id="msg">Loading PDF…</div>
-<div id="viewer"></div>
+<div id="toolbar">
+  <button onclick="zoom(-0.2)">−</button>
+  <span id="zoom-label">140%</span>
+  <button onclick="zoom(+0.2)">+</button>
+</div>
+<div id="scroll">
+  <div id="msg">Loading PDF…</div>
+  <div id="viewer"></div>
+</div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 var b64="{b64}";
 var bin=atob(b64),arr=new Uint8Array(bin.length);
 for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+var pdfDoc=null, scale=1.4;
 pdfjsLib.getDocument({{data:arr}}).promise.then(function(pdf){{
+  pdfDoc=pdf;
   document.getElementById('msg').style.display='none';
+  renderAll();
+}}).catch(function(e){{
+  document.getElementById('msg').textContent='Could not load PDF: '+e.message;
+}});
+function renderAll(){{
   var v=document.getElementById('viewer');
+  v.innerHTML='';
+  document.getElementById('zoom-label').textContent=Math.round(scale*100)+'%';
   function render(n){{
-    pdf.getPage(n).then(function(page){{
-      var vp=page.getViewport({{scale:1.4}});
+    pdfDoc.getPage(n).then(function(page){{
+      var vp=page.getViewport({{scale:scale}});
       var wrap=document.createElement('div');
       wrap.className='page-wrap';
       wrap.style.width=vp.width+'px';
@@ -111,21 +138,21 @@ pdfjsLib.getDocument({{data:arr}}).promise.then(function(pdf){{
           var tl=document.createElement('div');
           tl.className='textLayer';
           wrap.appendChild(tl);
-          try{{
-            pdfjsLib.renderTextLayer({{textContentSource:tc,container:tl,viewport:vp,textDivs:[]}});
-          }}catch(e){{}}
+          try{{pdfjsLib.renderTextLayer({{textContentSource:tc,container:tl,viewport:vp,textDivs:[]}});}}catch(e){{}}
         }});
-        if(n<pdf.numPages) render(n+1);
+        if(n<pdfDoc.numPages) render(n+1);
       }});
     }});
   }}
   render(1);
-}}).catch(function(e){{
-  document.getElementById('msg').textContent='Could not load PDF: '+e.message;
-}});
+}}
+function zoom(delta){{
+  scale=Math.min(4, Math.max(0.4, scale+delta));
+  renderAll();
+}}
 </script>
 </body>
-</html>""", height=height, scrolling=True)
+</html>""", height=height, scrolling=False)
 
 
 def copy_btn_html(b64_str, key):
