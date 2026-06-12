@@ -68,7 +68,18 @@ def pdf_viewer(file_bytes, height=720):
 *{{box-sizing:border-box;margin:0;padding:0}}
 html,body{{height:100%;background:#525659;overflow-y:auto}}
 #viewer{{padding:10px;display:flex;flex-direction:column;align-items:center}}
-canvas{{display:block;margin-bottom:10px;box-shadow:0 2px 10px rgba(0,0,0,.6);max-width:100%}}
+.page-wrap{{position:relative;margin-bottom:10px;box-shadow:0 2px 10px rgba(0,0,0,.6)}}
+.page-wrap canvas{{display:block}}
+.textLayer{{
+  position:absolute;left:0;top:0;right:0;bottom:0;
+  overflow:hidden;opacity:0.25;line-height:1;
+  -webkit-text-size-adjust:none;text-size-adjust:none;
+}}
+.textLayer span{{
+  color:transparent;position:absolute;white-space:pre;
+  cursor:text;transform-origin:0% 0%;
+}}
+.textLayer span::selection{{background:rgba(0,100,255,0.35)}}
 #msg{{color:#ccc;font-family:sans-serif;font-size:13px;padding:30px;text-align:center}}
 </style>
 </head>
@@ -87,10 +98,23 @@ pdfjsLib.getDocument({{data:arr}}).promise.then(function(pdf){{
   function render(n){{
     pdf.getPage(n).then(function(page){{
       var vp=page.getViewport({{scale:1.4}});
+      var wrap=document.createElement('div');
+      wrap.className='page-wrap';
+      wrap.style.width=vp.width+'px';
+      wrap.style.height=vp.height+'px';
+      v.appendChild(wrap);
       var c=document.createElement('canvas');
       c.width=vp.width; c.height=vp.height;
-      v.appendChild(c);
+      wrap.appendChild(c);
       page.render({{canvasContext:c.getContext('2d'),viewport:vp}}).promise.then(function(){{
+        page.getTextContent().then(function(tc){{
+          var tl=document.createElement('div');
+          tl.className='textLayer';
+          wrap.appendChild(tl);
+          try{{
+            pdfjsLib.renderTextLayer({{textContentSource:tc,container:tl,viewport:vp,textDivs:[]}});
+          }}catch(e){{}}
+        }});
         if(n<pdf.numPages) render(n+1);
       }});
     }});
