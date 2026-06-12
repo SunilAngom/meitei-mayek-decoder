@@ -73,32 +73,32 @@ html,body{{height:100%;background:#525659;display:flex;flex-direction:column;ove
 }}
 #toolbar button{{
   background:#555;color:#eee;border:none;border-radius:4px;
-  padding:3px 10px;cursor:pointer;font-size:15px;font-weight:bold;
+  padding:4px 14px;cursor:pointer;font-size:16px;font-weight:bold;line-height:1;
 }}
 #toolbar button:hover{{background:#777}}
-#zoom-label{{color:#ddd;font-family:sans-serif;font-size:13px;min-width:44px;text-align:center}}
-#scroll{{flex:1;overflow-y:scroll;overflow-x:auto;padding:10px}}
-#viewer{{display:flex;flex-direction:column;align-items:center}}
-.page-wrap{{position:relative;margin-bottom:10px;box-shadow:0 2px 10px rgba(0,0,0,.6)}}
+#zoom-label{{color:#ddd;font-family:sans-serif;font-size:13px;min-width:48px;text-align:center}}
+#scroll{{flex:1;overflow:auto;padding:12px}}
+#viewer{{display:flex;flex-direction:column;align-items:center;min-width:fit-content}}
+.page-wrap{{position:relative;margin-bottom:12px;box-shadow:0 3px 14px rgba(0,0,0,.7)}}
 .page-wrap canvas{{display:block}}
 .textLayer{{
   position:absolute;left:0;top:0;right:0;bottom:0;
-  overflow:hidden;opacity:0.25;line-height:1;
+  overflow:hidden;opacity:0.2;line-height:1;text-align:initial;
   -webkit-text-size-adjust:none;text-size-adjust:none;
 }}
-.textLayer span{{
+.textLayer span,.textLayer br{{
   color:transparent;position:absolute;white-space:pre;
   cursor:text;transform-origin:0% 0%;
 }}
-.textLayer span::selection{{background:rgba(0,100,255,0.35)}}
+.textLayer ::selection{{background:rgba(0,120,255,0.4)}}
 #msg{{color:#ccc;font-family:sans-serif;font-size:13px;padding:30px;text-align:center}}
 </style>
 </head>
 <body>
 <div id="toolbar">
-  <button onclick="zoom(-0.2)">−</button>
-  <span id="zoom-label">140%</span>
-  <button onclick="zoom(+0.2)">+</button>
+  <button onclick="zoom(-0.25)" title="Zoom out">−</button>
+  <span id="zoom-label">…</span>
+  <button onclick="zoom(+0.25)" title="Zoom in">+</button>
 </div>
 <div id="scroll">
   <div id="msg">Loading PDF…</div>
@@ -107,51 +107,68 @@ html,body{{height:100%;background:#525659;display:flex;flex-direction:column;ove
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-document.getElementById('scroll').addEventListener('wheel',function(e){{
-  e.stopPropagation();
-  this.scrollTop+=e.deltaY;
-}},{{passive:false}});
+
+var scr=document.getElementById('scroll');
+scr.addEventListener('wheel',function(e){{e.stopPropagation();scr.scrollTop+=e.deltaY;}},{{passive:false}});
+
+var DPR=window.devicePixelRatio||1;
 var b64="{b64}";
 var bin=atob(b64),arr=new Uint8Array(bin.length);
 for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
-var pdfDoc=null, scale=1.4;
+
+var pdfDoc=null,scale=1.0;
+
 pdfjsLib.getDocument({{data:arr}}).promise.then(function(pdf){{
   pdfDoc=pdf;
   document.getElementById('msg').style.display='none';
-  renderAll();
+  pdfDoc.getPage(1).then(function(page){{
+    var nativeW=page.getViewport({{scale:1}}).width;
+    var fitW=scr.clientWidth-24;
+    scale=Math.max(0.4, fitW/nativeW);
+    renderAll();
+  }});
 }}).catch(function(e){{
-  document.getElementById('msg').textContent='Could not load PDF: '+e.message;
+  document.getElementById('msg').textContent='Error: '+e.message;
 }});
+
 function renderAll(){{
-  var v=document.getElementById('viewer');
-  v.innerHTML='';
+  document.getElementById('viewer').innerHTML='';
   document.getElementById('zoom-label').textContent=Math.round(scale*100)+'%';
-  function render(n){{
-    pdfDoc.getPage(n).then(function(page){{
-      var vp=page.getViewport({{scale:scale}});
-      var wrap=document.createElement('div');
-      wrap.className='page-wrap';
-      wrap.style.width=vp.width+'px';
-      wrap.style.height=vp.height+'px';
-      v.appendChild(wrap);
-      var c=document.createElement('canvas');
-      c.width=vp.width; c.height=vp.height;
-      wrap.appendChild(c);
-      page.render({{canvasContext:c.getContext('2d'),viewport:vp}}).promise.then(function(){{
-        page.getTextContent().then(function(tc){{
-          var tl=document.createElement('div');
-          tl.className='textLayer';
-          wrap.appendChild(tl);
-          try{{pdfjsLib.renderTextLayer({{textContentSource:tc,container:tl,viewport:vp,textDivs:[]}});}}catch(e){{}}
-        }});
-        if(n<pdfDoc.numPages) render(n+1);
-      }});
-    }});
-  }}
-  render(1);
+  renderPage(1);
 }}
-function zoom(delta){{
-  scale=Math.min(4, Math.max(0.4, scale+delta));
+
+function renderPage(n){{
+  pdfDoc.getPage(n).then(function(page){{
+    var vpCSS=page.getViewport({{scale:scale}});
+    var vpHD =page.getViewport({{scale:scale*DPR}});
+
+    var wrap=document.createElement('div');
+    wrap.className='page-wrap';
+    wrap.style.width=vpCSS.width+'px';
+    wrap.style.height=vpCSS.height+'px';
+    document.getElementById('viewer').appendChild(wrap);
+
+    var c=document.createElement('canvas');
+    c.width=vpHD.width; c.height=vpHD.height;
+    c.style.width=vpCSS.width+'px'; c.style.height=vpCSS.height+'px';
+    wrap.appendChild(c);
+
+    var ctx=c.getContext('2d');
+    ctx.imageSmoothingEnabled=false;
+    page.render({{canvasContext:ctx,viewport:vpHD}}).promise.then(function(){{
+      page.getTextContent().then(function(tc){{
+        var tl=document.createElement('div');
+        tl.className='textLayer';
+        wrap.appendChild(tl);
+        try{{pdfjsLib.renderTextLayer({{textContentSource:tc,container:tl,viewport:vpCSS,textDivs:[]}});}}catch(e){{}}
+      }});
+      if(n<pdfDoc.numPages) renderPage(n+1);
+    }});
+  }});
+}}
+
+function zoom(d){{
+  scale=Math.min(5,Math.max(0.3,scale+d));
   renderAll();
 }}
 </script>
