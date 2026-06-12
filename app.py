@@ -66,15 +66,42 @@ def pdf_viewer(file_bytes, height=720):
 <head>
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
-html,body{{height:100%;overflow:hidden}}
-body{{background:#404040}}
-embed{{width:100%;height:{height}px;display:block;border:none}}
+html,body{{height:100%;background:#525659;overflow-y:auto}}
+#viewer{{padding:10px;display:flex;flex-direction:column;align-items:center}}
+canvas{{display:block;margin-bottom:10px;box-shadow:0 2px 10px rgba(0,0,0,.6);max-width:100%}}
+#msg{{color:#ccc;font-family:sans-serif;font-size:13px;padding:30px;text-align:center}}
 </style>
 </head>
 <body>
-<embed src="data:application/pdf;base64,{b64}" type="application/pdf" width="100%" height="{height}">
+<div id="msg">Loading PDF…</div>
+<div id="viewer"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+var b64="{b64}";
+var bin=atob(b64),arr=new Uint8Array(bin.length);
+for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+pdfjsLib.getDocument({{data:arr}}).promise.then(function(pdf){{
+  document.getElementById('msg').style.display='none';
+  var v=document.getElementById('viewer');
+  function render(n){{
+    pdf.getPage(n).then(function(page){{
+      var vp=page.getViewport({{scale:1.4}});
+      var c=document.createElement('canvas');
+      c.width=vp.width; c.height=vp.height;
+      v.appendChild(c);
+      page.render({{canvasContext:c.getContext('2d'),viewport:vp}}).promise.then(function(){{
+        if(n<pdf.numPages) render(n+1);
+      }});
+    }});
+  }}
+  render(1);
+}}).catch(function(e){{
+  document.getElementById('msg').textContent='Could not load PDF: '+e.message;
+}});
+</script>
 </body>
-</html>""", height=height, scrolling=False)
+</html>""", height=height, scrolling=True)
 
 
 def copy_btn_html(b64_str, key):
