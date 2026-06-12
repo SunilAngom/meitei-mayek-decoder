@@ -111,7 +111,7 @@ html,body{{height:100%;background:#525659;display:flex;flex-direction:column;ove
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 var scr=document.getElementById('scroll');
 scr.addEventListener('wheel',function(e){{e.stopPropagation();scr.scrollTop+=e.deltaY;}},{{passive:false}});
-var DPR=Math.min(window.devicePixelRatio||1,3);
+var DPR=Math.max(window.devicePixelRatio||1,2);
 var b64="{b64}";
 var bin=atob(b64),arr=new Uint8Array(bin.length);
 for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
@@ -121,7 +121,7 @@ pdfjsLib.getDocument({{data:arr}}).promise.then(function(pdf){{
   document.getElementById('msg').style.display='none';
   pdfDoc.getPage(1).then(function(page){{
     var nativeW=page.getViewport({{scale:1}}).width;
-    scale=Math.max(1.0,(scr.clientWidth-24)/nativeW);
+    scale=Math.max(1.2,(scr.clientWidth-24)/nativeW);
     renderAll();
   }});
 }}).catch(function(e){{
@@ -145,7 +145,10 @@ function renderPage(n){{
     c.width=vpHD.width; c.height=vpHD.height;
     c.style.width=vpCSS.width+'px'; c.style.height=vpCSS.height+'px';
     wrap.appendChild(c);
-    page.render({{canvasContext:c.getContext('2d'),viewport:vpHD}}).promise.then(function(){{
+    var ctx=c.getContext('2d');
+    ctx.imageSmoothingEnabled=true;
+    ctx.imageSmoothingQuality='high';
+    page.render({{canvasContext:ctx,viewport:vpHD}}).promise.then(function(){{
       page.getTextContent().then(function(tc){{
         var tl=document.createElement('div');
         tl.className='textLayer';
@@ -204,64 +207,68 @@ for key, default in [
     if key not in st.session_state:
         st.session_state[key] = default
 
-# ═══════════════════════════  COLUMN RESIZE BAR  ══════════════════════════
-r1, r2, r3 = st.columns([1, 4, 1])
-with r1:
-    if st.button("◀  PDF wider", use_container_width=True, key="col_left"):
-        st.session_state.col_split = min(8, st.session_state.col_split + 1)
-        st.rerun()
-with r2:
-    pct = st.session_state.col_split * 10
-    st.markdown(
-        f"<div style='text-align:center;font-size:12px;color:#888;padding-top:6px'>"
-        f"PDF {pct}%  ·  Decoder {100-pct}%</div>",
-        unsafe_allow_html=True,
-    )
-with r3:
-    if st.button("Decoder wider  ▶", use_container_width=True, key="col_right"):
-        st.session_state.col_split = max(2, st.session_state.col_split - 1)
-        st.rerun()
-
-# ═══════════════════════════  SIDE-BY-SIDE  ═══════════════════════════════
-left, right = st.columns([st.session_state.col_split, 10 - st.session_state.col_split])
-
-# ── LEFT: PDF Viewer ───────────────────────────────────────────────────────
-with left:
-    hA, hB, hC = st.columns([3, 1, 1])
-    with hA:
-        st.markdown("### PDF Viewer")
-    with hB:
-        min_label = "▲ Hide" if not st.session_state.pdf_minimized else "▼ Show"
-        if st.button(min_label, key="btn_pdf_min", use_container_width=True):
-            st.session_state.pdf_minimized = not st.session_state.pdf_minimized
+# ═══════════════════════════  TOOLBAR  ════════════════════════════════════
+tb1, tb2, tb3, tb4 = st.columns([1, 3, 1, 1])
+with tb1:
+    if not st.session_state.pdf_minimized:
+        if st.button("◀  PDF wider", use_container_width=True, key="col_left"):
+            st.session_state.col_split = min(8, st.session_state.col_split + 1)
             st.rerun()
-    with hC:
-        if st.button("Clear", key="btn_pdf_clear", use_container_width=True):
-            st.session_state.pdf_bytes        = None
-            st.session_state.pdf_uploader_key += 1
-            st.session_state.pdf_minimized    = False
-            st.rerun()
-
-    pdf_up = st.file_uploader(
-        "Open a PDF file", type=["pdf"],
-        key=f"pdf_uploader_{st.session_state.pdf_uploader_key}"
-    )
-    if pdf_up is not None:
-        st.session_state.pdf_bytes     = pdf_up.read()
-        st.session_state.pdf_minimized = False
-
-    if st.session_state.pdf_bytes:
-        if not st.session_state.pdf_minimized:
-            pdf_viewer(st.session_state.pdf_bytes, height=680)
-        else:
-            st.info("PDF hidden — click **▼ Show** to restore.")
-    else:
+with tb2:
+    if not st.session_state.pdf_minimized:
+        pct = st.session_state.col_split * 10
         st.markdown(
-            '<div style="background:#464646;height:380px;border-radius:6px;'
-            'display:flex;align-items:center;justify-content:center;'
-            'color:#aaa;font-size:14px;">Upload a PDF to view it here</div>',
+            f"<div style='text-align:center;font-size:12px;color:#888;padding-top:6px'>"
+            f"PDF {pct}%  ·  Decoder {100-pct}%</div>",
             unsafe_allow_html=True,
         )
+with tb3:
+    if not st.session_state.pdf_minimized:
+        if st.button("Decoder wider  ▶", use_container_width=True, key="col_right"):
+            st.session_state.col_split = max(2, st.session_state.col_split - 1)
+            st.rerun()
+with tb4:
+    min_label = "▼ Show PDF" if st.session_state.pdf_minimized else "▲ Hide PDF"
+    if st.button(min_label, use_container_width=True, key="btn_pdf_min"):
+        st.session_state.pdf_minimized = not st.session_state.pdf_minimized
+        st.rerun()
+
+# ═══════════════════════════  LAYOUT  ═════════════════════════════════════
+if st.session_state.pdf_minimized:
+    left  = None
+    right = st.container()
+else:
+    _cols = st.columns([st.session_state.col_split, 10 - st.session_state.col_split])
+    left, right = _cols[0], _cols[1]
+
+# ── LEFT: PDF Viewer (hidden when minimized) ───────────────────────────────
+if left is not None:
+    with left:
+        hA, hB = st.columns([4, 1])
+        with hA:
+            st.markdown("### PDF Viewer")
+        with hB:
+            if st.button("Clear", key="btn_pdf_clear", use_container_width=True):
+                st.session_state.pdf_bytes        = None
+                st.session_state.pdf_uploader_key += 1
+                st.rerun()
+
+        pdf_up = st.file_uploader(
+            "Open a PDF file", type=["pdf"],
+            key=f"pdf_uploader_{st.session_state.pdf_uploader_key}"
+        )
+        if pdf_up is not None:
+            st.session_state.pdf_bytes = pdf_up.read()
+
+        if st.session_state.pdf_bytes:
+            pdf_viewer(st.session_state.pdf_bytes, height=680)
+        else:
+            st.markdown(
+                '<div style="background:#464646;height:380px;border-radius:6px;'
+                'display:flex;align-items:center;justify-content:center;'
+                'color:#aaa;font-size:14px;">Upload a PDF to view it here</div>',
+                unsafe_allow_html=True,
+            )
 
 # ── RIGHT: Decoder ─────────────────────────────────────────────────────────
 with right:
