@@ -66,29 +66,128 @@ def pdf_viewer(file_bytes, height=720):
 <head>
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
-html,body{{height:100%;overflow:hidden;background:#525659;
-           display:flex;flex-direction:column}}
-#pf{{flex:1;width:100%;border:none;display:none}}
-#msg{{flex:1;display:flex;align-items:center;justify-content:center;
-      color:#ccc;font:14px sans-serif;text-align:center;padding:20px}}
+html,body{{height:100%;background:#525659;display:flex;flex-direction:column;overflow:hidden}}
+#toolbar{{
+  background:#2e2e2e;padding:6px 10px;display:flex;align-items:center;
+  gap:6px;flex-shrink:0;border-bottom:1px solid #111;flex-wrap:wrap;
+}}
+.tbtn{{background:#555;color:#eee;border:none;border-radius:4px;
+       padding:4px 12px;cursor:pointer;font-size:14px;font-weight:bold;line-height:1.4}}
+.tbtn:hover{{background:#888}}
+.tbtn.active{{background:#0078d4}}
+#zoom-label{{color:#ddd;font:13px sans-serif;min-width:46px;text-align:center}}
+#cpbtn{{background:#c0392b;color:#fff;border:none;border-radius:4px;
+        padding:4px 12px;cursor:pointer;font-size:13px;font-weight:600;margin-left:auto}}
+#cpbtn:hover{{background:#e74c3c}}
+#scroll{{flex:1;overflow:auto;padding:12px}}
+#viewer{{display:flex;flex-direction:column;align-items:center;min-width:fit-content}}
+.pw{{position:relative;margin-bottom:12px;background:#fff;box-shadow:0 4px 16px rgba(0,0,0,.7)}}
+.pw canvas{{display:block}}
+#textview{{flex:1;overflow:auto;display:none;padding:12px}}
+#textbox{{
+  width:100%;height:100%;resize:none;border:none;outline:none;
+  background:#1e1e1e;color:#e0e0e0;font:14px/1.8 'Consolas','Courier New',monospace;
+  padding:14px;box-sizing:border-box;
+  -webkit-user-select:text;user-select:text;
+}}
+#msg{{color:#ccc;font:14px sans-serif;padding:30px;text-align:center}}
 </style>
 </head>
 <body>
-<div id="msg">Loading PDF…</div>
-<iframe id="pf" allowfullscreen src=""></iframe>
+<div id="toolbar">
+  <button class="tbtn" onclick="zoom(-0.25)">−</button>
+  <span id="zoom-label">…</span>
+  <button class="tbtn" onclick="zoom(+0.25)">+</button>
+  <button class="tbtn" onclick="fitWidth()" style="font-size:12px">Fit</button>
+  <button class="tbtn active" id="btnpdf" onclick="showView('pdf')">PDF View</button>
+  <button class="tbtn" id="btntxt" onclick="showView('text')">Text View</button>
+  <button id="cpbtn" onclick="copyAll()">Copy All Text</button>
+</div>
+<div id="scroll">
+  <div id="msg">Loading PDF…</div>
+  <div id="viewer"></div>
+</div>
+<div id="textview"><textarea id="textbox" readonly spellcheck="false"></textarea></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
-(function(){{
-  var b64="{b64}";
-  var bin=atob(b64),buf=new Uint8Array(bin.length);
-  for(var i=0;i<bin.length;i++)buf[i]=bin.charCodeAt(i);
-  var blob=new Blob([buf],{{type:"application/pdf"}});
-  var pf=document.getElementById("pf");
-  pf.onload=function(){{
-    document.getElementById("msg").style.display="none";
-    pf.style.display="block";
-  }};
-  pf.src=URL.createObjectURL(blob);
-}})();
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+var scr=document.getElementById('scroll');
+scr.addEventListener('wheel',function(e){{e.stopPropagation();scr.scrollTop+=e.deltaY;}},{{passive:false}});
+var DPR=window.devicePixelRatio||1;
+var b64="{b64}";
+var bin=atob(b64),arr=new Uint8Array(bin.length);
+for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+var pdfDoc=null,scale=1.0,extractedText='';
+pdfjsLib.getDocument({{data:arr,cMapUrl:'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',cMapPacked:true}}).promise.then(function(pdf){{
+  pdfDoc=pdf;
+  document.getElementById('msg').style.display='none';
+  pdfDoc.getPage(1).then(function(page){{
+    var nw=page.getViewport({{scale:1}}).width;
+    scale=Math.max(1.2,(scr.clientWidth-24)/nw);
+    renderAll();
+    extractText();
+  }});
+}}).catch(function(e){{document.getElementById('msg').textContent='Error: '+e.message;}});
+
+function renderAll(){{
+  document.getElementById('viewer').innerHTML='';
+  document.getElementById('zoom-label').textContent=Math.round(scale*100)+'%';
+  renderPage(1);
+}}
+function renderPage(n){{
+  pdfDoc.getPage(n).then(function(page){{
+    var vC=page.getViewport({{scale:scale}});
+    var vH=page.getViewport({{scale:scale*DPR}});
+    var pw=document.createElement('div'); pw.className='pw';
+    pw.style.width=vC.width+'px'; pw.style.height=vC.height+'px';
+    document.getElementById('viewer').appendChild(pw);
+    var c=document.createElement('canvas');
+    c.width=vH.width; c.height=vH.height;
+    c.style.width=vC.width+'px'; c.style.height=vC.height+'px';
+    pw.appendChild(c);
+    var ctx=c.getContext('2d');
+    ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+    page.render({{canvasContext:ctx,viewport:vH}}).promise.then(function(){{
+      if(n<pdfDoc.numPages)renderPage(n+1);
+    }});
+  }});
+}}
+function extractText(){{
+  var parts=[]; var total=pdfDoc.numPages;
+  function doPage(n){{
+    pdfDoc.getPage(n).then(function(p){{return p.getTextContent();}}).then(function(tc){{
+      parts[n-1]=tc.items.map(function(i){{return i.str;}}).join('');
+      if(n<total)doPage(n+1);
+      else{{extractedText=parts.join('\n\n--- Page break ---\n\n');
+            document.getElementById('textbox').value=extractedText;}}
+    }});
+  }}
+  doPage(1);
+}}
+function showView(v){{
+  var isPdf=v==='pdf';
+  document.getElementById('scroll').style.display=isPdf?'':'none';
+  document.getElementById('textview').style.display=isPdf?'none':'flex';
+  document.getElementById('btnpdf').className='tbtn'+(isPdf?' active':'');
+  document.getElementById('btntxt').className='tbtn'+(!isPdf?' active':'');
+  document.getElementById('zoom-label').style.display=isPdf?'':'none';
+  document.querySelectorAll('.tbtn:nth-child(1),.tbtn:nth-child(3),.tbtn:nth-child(4)').forEach(function(b){{b.style.display=isPdf?'':'none';}});
+}}
+function copyAll(){{
+  if(!extractedText)return;
+  var btn=document.getElementById('cpbtn');
+  navigator.clipboard.writeText(extractedText).then(function(){{
+    btn.textContent='✓ Copied!'; btn.style.background='#27ae60';
+    setTimeout(function(){{btn.textContent='Copy All Text';btn.style.background='#c0392b';}},2000);
+  }}).catch(function(){{prompt('Select all and copy (Ctrl+A, Ctrl+C):',extractedText);}});
+}}
+function zoom(d){{scale=Math.min(6,Math.max(0.3,scale+d));renderAll();}}
+function fitWidth(){{
+  if(!pdfDoc)return;
+  pdfDoc.getPage(1).then(function(p){{
+    scale=Math.max(1.0,(scr.clientWidth-24)/p.getViewport({{scale:1}}).width);renderAll();
+  }});
+}}
 </script>
 </body>
 </html>""", height=height, scrolling=False)
