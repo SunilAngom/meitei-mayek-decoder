@@ -77,7 +77,7 @@ html,body{{height:100%;background:#525659;display:flex;flex-direction:column;ove
 }}
 #toolbar button:hover{{background:#777}}
 #zoom-label{{color:#ddd;font-family:sans-serif;font-size:13px;min-width:44px;text-align:center}}
-#scroll{{flex:1;overflow-y:auto;padding:10px}}
+#scroll{{flex:1;overflow-y:scroll;overflow-x:auto;padding:10px}}
 #viewer{{display:flex;flex-direction:column;align-items:center}}
 .page-wrap{{position:relative;margin-bottom:10px;box-shadow:0 2px 10px rgba(0,0,0,.6)}}
 .page-wrap canvas{{display:block}}
@@ -107,6 +107,10 @@ html,body{{height:100%;background:#525659;display:flex;flex-direction:column;ove
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+document.getElementById('scroll').addEventListener('wheel',function(e){{
+  e.stopPropagation();
+  this.scrollTop+=e.deltaY;
+}},{{passive:false}});
 var b64="{b64}";
 var bin=atob(b64),arr=new Uint8Array(bin.length);
 for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
@@ -185,12 +189,31 @@ if not mapping:
 for key, default in [
     ("output",""), ("input_key",0),
     ("pdf_bytes",None), ("pdf_uploader_key",0),
+    ("col_split", 6),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
 
+# ═══════════════════════════  COLUMN RESIZE BAR  ══════════════════════════
+r1, r2, r3 = st.columns([1, 4, 1])
+with r1:
+    if st.button("◀  PDF wider", use_container_width=True, key="col_left"):
+        st.session_state.col_split = min(8, st.session_state.col_split + 1)
+        st.rerun()
+with r2:
+    pct = st.session_state.col_split * 10
+    st.markdown(
+        f"<div style='text-align:center;font-size:12px;color:#888;padding-top:6px'>"
+        f"PDF {pct}%  ·  Decoder {100-pct}%</div>",
+        unsafe_allow_html=True,
+    )
+with r3:
+    if st.button("Decoder wider  ▶", use_container_width=True, key="col_right"):
+        st.session_state.col_split = max(2, st.session_state.col_split - 1)
+        st.rerun()
+
 # ═══════════════════════════  SIDE-BY-SIDE  ═══════════════════════════════
-left, right = st.columns([6, 4])
+left, right = st.columns([st.session_state.col_split, 10 - st.session_state.col_split])
 
 # ── LEFT: PDF Viewer ───────────────────────────────────────────────────────
 with left:
