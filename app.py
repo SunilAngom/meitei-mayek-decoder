@@ -79,52 +79,54 @@ html,body{{height:100%;background:#525659;display:flex;flex-direction:column;ove
 #zoom-label{{color:#ddd;font-family:sans-serif;font-size:13px;min-width:52px;text-align:center}}
 #scroll{{flex:1;overflow:auto;padding:14px}}
 #viewer{{display:flex;flex-direction:column;align-items:center;min-width:fit-content}}
-.page-wrap{{position:relative;margin-bottom:14px;background:#fff;box-shadow:0 4px 18px rgba(0,0,0,.75)}}
-.page-wrap canvas{{display:block}}
+.page-wrap{{position:relative;margin-bottom:14px;background:#fff;box-shadow:0 4px 20px rgba(0,0,0,.8)}}
+.page-wrap canvas{{display:block;pointer-events:none}}
 .textLayer{{
   position:absolute;left:0;top:0;right:0;bottom:0;
   overflow:hidden;line-height:1;text-align:initial;
+  pointer-events:auto;
   -webkit-text-size-adjust:none;text-size-adjust:none;
 }}
-.textLayer span{{
+.textLayer span,.textLayer br{{
   color:transparent;position:absolute;white-space:pre;
   cursor:text;transform-origin:0% 0%;
   -webkit-user-select:text;user-select:text;
 }}
-.textLayer ::selection{{background:rgba(0,120,255,0.35);color:transparent}}
+.textLayer ::selection{{background:rgba(0,120,255,0.4);color:transparent}}
 #msg{{color:#ccc;font-family:sans-serif;font-size:14px;padding:40px;text-align:center}}
 </style>
 </head>
 <body>
 <div id="toolbar">
-  <button onclick="zoom(-0.25)">−</button>
+  <button onclick="zoom(-0.25)" title="Zoom out">−</button>
   <span id="zoom-label">…</span>
-  <button onclick="zoom(+0.25)">+</button>
+  <button onclick="zoom(+0.25)" title="Zoom in">+</button>
+  <button onclick="fitWidth()" title="Fit to width" style="font-size:12px;padding:4px 10px">Fit</button>
 </div>
 <div id="scroll">
   <div id="msg">Loading PDF…</div>
   <div id="viewer"></div>
 </div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
-pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 var scr=document.getElementById('scroll');
 scr.addEventListener('wheel',function(e){{e.stopPropagation();scr.scrollTop+=e.deltaY;}},{{passive:false}});
 
-var DPR=Math.min(window.devicePixelRatio||1, 3);
+var DPR=window.devicePixelRatio||1;
 var b64="{b64}";
 var bin=atob(b64),arr=new Uint8Array(bin.length);
 for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
 
-var pdfDoc=null, scale=1.0;
+var pdfDoc=null,scale=1.0;
 
-pdfjsLib.getDocument({{data:arr}}).promise.then(function(pdf){{
+pdfjsLib.getDocument({{data:arr,cMapUrl:'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',cMapPacked:true}}).promise.then(function(pdf){{
   pdfDoc=pdf;
   document.getElementById('msg').style.display='none';
   pdfDoc.getPage(1).then(function(page){{
     var nativeW=page.getViewport({{scale:1}}).width;
-    scale=Math.max(0.5,(scr.clientWidth-28)/nativeW);
+    scale=Math.max(1.5,(scr.clientWidth-28)/nativeW);
     renderAll();
   }});
 }}).catch(function(e){{
@@ -153,12 +155,18 @@ function renderPage(n){{
     c.style.width=vpCSS.width+'px'; c.style.height=vpCSS.height+'px';
     wrap.appendChild(c);
 
-    page.render({{canvasContext:c.getContext('2d'),viewport:vpHD}}).promise.then(function(){{
-      page.getTextContent().then(function(tc){{
-        var tl=document.createElement('div');
-        tl.className='textLayer';
-        wrap.appendChild(tl);
-        pdfjsLib.renderTextLayer({{textContent:tc,container:tl,viewport:vpCSS,textDivs:[]}});
+    var ctx=c.getContext('2d');
+    ctx.imageSmoothingEnabled=true;
+    ctx.imageSmoothingQuality='high';
+
+    page.render({{canvasContext:ctx,viewport:vpHD}}).promise.then(function(){{
+      var tl=document.createElement('div');
+      tl.className='textLayer';
+      wrap.appendChild(tl);
+      pdfjsLib.renderTextLayer({{
+        textContentSource:page.streamTextContent(),
+        container:tl,
+        viewport:vpCSS
       }});
       if(n<pdfDoc.numPages) renderPage(n+1);
     }});
@@ -166,8 +174,16 @@ function renderPage(n){{
 }}
 
 function zoom(d){{
-  scale=Math.min(5,Math.max(0.3,scale+d));
+  scale=Math.min(6,Math.max(0.3,scale+d));
   renderAll();
+}}
+function fitWidth(){{
+  if(!pdfDoc)return;
+  pdfDoc.getPage(1).then(function(page){{
+    var nativeW=page.getViewport({{scale:1}}).width;
+    scale=Math.max(1.0,(scr.clientWidth-28)/nativeW);
+    renderAll();
+  }});
 }}
 </script>
 </body>
