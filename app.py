@@ -3,7 +3,6 @@ import streamlit.components.v1 as components
 import json
 import base64
 import html as html_mod
-import fitz  # PyMuPDF
 
 st.set_page_config(
     page_title="Meitei Mayek Decoder",
@@ -60,34 +59,114 @@ def decode_text(text, mapping):
     )
 
 
-def render_pdf_pages(file_bytes, dpi=150):
-    doc = fitz.open(stream=file_bytes, filetype="pdf")
-    pages = []
-    mat = fitz.Matrix(dpi / 72, dpi / 72)
-    for page in doc:
-        pix = page.get_pixmap(matrix=mat, alpha=False)
-        img_b64 = base64.b64encode(pix.tobytes("png")).decode()
-        text = page.get_text("text")
-        pages.append({"img": img_b64, "text": text})
-    doc.close()
-    return pages
-
-
-def show_pdf_pages(pages, height=700):
-    imgs = "".join(
-        f'<img src="data:image/png;base64,{p["img"]}" '
-        f'style="display:block;width:100%;margin-bottom:10px;'
-        f'box-shadow:0 3px 14px rgba(0,0,0,.7)">'
-        for p in pages
-    )
+def pdf_viewer(file_bytes, height=680):
+    b64 = base64.b64encode(file_bytes).decode("ascii")
     components.html(f"""<!DOCTYPE html>
-<html><head><style>
+<html>
+<head>
+<style>
 *{{box-sizing:border-box;margin:0;padding:0}}
-html,body{{height:100%;background:#525659;overflow:auto}}
-#v{{padding:10px}}
-</style></head>
-<body><div id="v">{imgs}</div></body>
-</html>""", height=height, scrolling=True)
+html,body{{height:100%;background:#525659;display:flex;flex-direction:column;overflow:hidden}}
+#toolbar{{
+  background:#3a3a3a;padding:6px 12px;display:flex;align-items:center;
+  gap:8px;flex-shrink:0;border-bottom:1px solid #222;
+}}
+#toolbar button{{
+  background:#555;color:#eee;border:none;border-radius:4px;
+  padding:4px 14px;cursor:pointer;font-size:16px;font-weight:bold;line-height:1;
+}}
+#toolbar button:hover{{background:#888}}
+#zoom-label{{color:#ddd;font-family:sans-serif;font-size:13px;min-width:48px;text-align:center}}
+#scroll{{flex:1;overflow:auto;padding:12px}}
+#viewer{{display:flex;flex-direction:column;align-items:center;min-width:fit-content}}
+.page-wrap{{position:relative;margin-bottom:12px;background:#fff;box-shadow:0 3px 14px rgba(0,0,0,.7)}}
+.page-wrap canvas{{display:block}}
+.textLayer{{
+  position:absolute;left:0;top:0;right:0;bottom:0;
+  overflow:hidden;line-height:1;text-align:initial;
+  -webkit-text-size-adjust:none;text-size-adjust:none;
+}}
+.textLayer span,.textLayer br{{
+  color:transparent;position:absolute;white-space:pre;
+  cursor:text;transform-origin:0% 0%;
+  -webkit-user-select:text;user-select:text;
+}}
+.textLayer ::selection{{background:rgba(0,120,255,0.35);color:transparent}}
+#msg{{color:#ccc;font:13px sans-serif;padding:30px;text-align:center}}
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <button onclick="zoom(-0.25)">−</button>
+  <span id="zoom-label">…</span>
+  <button onclick="zoom(+0.25)">+</button>
+  <button onclick="fitWidth()" style="font-size:12px;padding:4px 10px">Fit</button>
+</div>
+<div id="scroll">
+  <div id="msg">Loading PDF…</div>
+  <div id="viewer"></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+var scr=document.getElementById('scroll');
+scr.addEventListener('wheel',function(e){{e.stopPropagation();scr.scrollTop+=e.deltaY;}},{{passive:false}});
+var DPR=Math.min(window.devicePixelRatio||1,3);
+var b64="{b64}";
+var bin=atob(b64),arr=new Uint8Array(bin.length);
+for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+var pdfDoc=null,scale=1.0;
+pdfjsLib.getDocument({{data:arr}}).promise.then(function(pdf){{
+  pdfDoc=pdf;
+  document.getElementById('msg').style.display='none';
+  pdfDoc.getPage(1).then(function(page){{
+    var nativeW=page.getViewport({{scale:1}}).width;
+    scale=Math.max(1.0,(scr.clientWidth-24)/nativeW);
+    renderAll();
+  }});
+}}).catch(function(e){{
+  document.getElementById('msg').textContent='Error: '+e.message;
+}});
+function renderAll(){{
+  document.getElementById('viewer').innerHTML='';
+  document.getElementById('zoom-label').textContent=Math.round(scale*100)+'%';
+  renderPage(1);
+}}
+function renderPage(n){{
+  pdfDoc.getPage(n).then(function(page){{
+    var vpCSS=page.getViewport({{scale:scale}});
+    var vpHD=page.getViewport({{scale:scale*DPR}});
+    var wrap=document.createElement('div');
+    wrap.className='page-wrap';
+    wrap.style.width=vpCSS.width+'px';
+    wrap.style.height=vpCSS.height+'px';
+    document.getElementById('viewer').appendChild(wrap);
+    var c=document.createElement('canvas');
+    c.width=vpHD.width; c.height=vpHD.height;
+    c.style.width=vpCSS.width+'px'; c.style.height=vpCSS.height+'px';
+    wrap.appendChild(c);
+    page.render({{canvasContext:c.getContext('2d'),viewport:vpHD}}).promise.then(function(){{
+      page.getTextContent().then(function(tc){{
+        var tl=document.createElement('div');
+        tl.className='textLayer';
+        wrap.appendChild(tl);
+        pdfjsLib.renderTextLayer({{textContent:tc,container:tl,viewport:vpCSS,textDivs:[]}});
+      }});
+      if(n<pdfDoc.numPages) renderPage(n+1);
+    }});
+  }});
+}}
+function zoom(d){{scale=Math.min(5,Math.max(0.3,scale+d));renderAll();}}
+function fitWidth(){{
+  if(!pdfDoc)return;
+  pdfDoc.getPage(1).then(function(page){{
+    scale=Math.max(0.5,(scr.clientWidth-24)/page.getViewport({{scale:1}}).width);
+    renderAll();
+  }});
+}}
+</script>
+</body>
+</html>""", height=height, scrolling=False)
 
 
 def copy_btn_html(b64_str, key):
@@ -119,8 +198,8 @@ if not mapping:
 
 for key, default in [
     ("output",""), ("input_key",0),
-    ("pdf_bytes",None), ("pdf_pages",None), ("pdf_uploader_key",0),
-    ("col_split", 6),
+    ("pdf_bytes",None), ("pdf_uploader_key",0),
+    ("col_split",6), ("pdf_minimized",False),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -148,14 +227,19 @@ left, right = st.columns([st.session_state.col_split, 10 - st.session_state.col_
 
 # ── LEFT: PDF Viewer ───────────────────────────────────────────────────────
 with left:
-    hA, hB = st.columns([4, 1])
+    hA, hB, hC = st.columns([3, 1, 1])
     with hA:
         st.markdown("### PDF Viewer")
     with hB:
+        min_label = "▲ Hide" if not st.session_state.pdf_minimized else "▼ Show"
+        if st.button(min_label, key="btn_pdf_min", use_container_width=True):
+            st.session_state.pdf_minimized = not st.session_state.pdf_minimized
+            st.rerun()
+    with hC:
         if st.button("Clear", key="btn_pdf_clear", use_container_width=True):
             st.session_state.pdf_bytes        = None
-            st.session_state.pdf_pages        = None
             st.session_state.pdf_uploader_key += 1
+            st.session_state.pdf_minimized    = False
             st.rerun()
 
     pdf_up = st.file_uploader(
@@ -163,25 +247,14 @@ with left:
         key=f"pdf_uploader_{st.session_state.pdf_uploader_key}"
     )
     if pdf_up is not None:
-        new_bytes = pdf_up.read()
-        if new_bytes != st.session_state.pdf_bytes:
-            st.session_state.pdf_bytes = new_bytes
-            st.session_state.pdf_pages = None
+        st.session_state.pdf_bytes     = pdf_up.read()
+        st.session_state.pdf_minimized = False
 
     if st.session_state.pdf_bytes:
-        if st.session_state.pdf_pages is None:
-            with st.spinner("Rendering PDF…"):
-                st.session_state.pdf_pages = render_pdf_pages(st.session_state.pdf_bytes)
-
-        show_pdf_pages(st.session_state.pdf_pages, height=680)
-
-        all_text = "\n\n".join(p["text"] for p in st.session_state.pdf_pages)
-        with st.expander("📋 Copy text from PDF"):
-            st.text_area(
-                "Select all (Ctrl+A) then copy (Ctrl+C):",
-                value=all_text, height=180,
-                key="pdf_text_area",
-            )
+        if not st.session_state.pdf_minimized:
+            pdf_viewer(st.session_state.pdf_bytes, height=680)
+        else:
+            st.info("PDF hidden — click **▼ Show** to restore.")
     else:
         st.markdown(
             '<div style="background:#464646;height:380px;border-radius:6px;'
