@@ -68,63 +68,63 @@ def pdf_viewer(file_bytes, height=720):
 *{{box-sizing:border-box;margin:0;padding:0}}
 html,body{{height:100%;background:#525659;display:flex;flex-direction:column;overflow:hidden}}
 #toolbar{{
-  background:#3a3a3a;padding:6px 10px;display:flex;align-items:center;
-  gap:8px;flex-shrink:0;border-bottom:1px solid #222;
+  background:#3a3a3a;padding:6px 12px;display:flex;align-items:center;
+  gap:10px;flex-shrink:0;border-bottom:1px solid #111;
 }}
 #toolbar button{{
   background:#555;color:#eee;border:none;border-radius:4px;
-  padding:4px 14px;cursor:pointer;font-size:16px;font-weight:bold;line-height:1;
+  padding:4px 16px;cursor:pointer;font-size:18px;font-weight:bold;line-height:1;
 }}
-#toolbar button:hover{{background:#777}}
-#zoom-label{{color:#ddd;font-family:sans-serif;font-size:13px;min-width:48px;text-align:center}}
-#scroll{{flex:1;overflow:auto;padding:12px}}
+#toolbar button:hover{{background:#888}}
+#zoom-label{{color:#ddd;font-family:sans-serif;font-size:13px;min-width:52px;text-align:center}}
+#scroll{{flex:1;overflow:auto;padding:14px}}
 #viewer{{display:flex;flex-direction:column;align-items:center;min-width:fit-content}}
-.page-wrap{{position:relative;margin-bottom:12px;box-shadow:0 3px 14px rgba(0,0,0,.7)}}
+.page-wrap{{position:relative;margin-bottom:14px;background:#fff;box-shadow:0 4px 18px rgba(0,0,0,.75)}}
 .page-wrap canvas{{display:block}}
 .textLayer{{
   position:absolute;left:0;top:0;right:0;bottom:0;
-  overflow:hidden;opacity:0.2;line-height:1;text-align:initial;
+  overflow:hidden;line-height:1;text-align:initial;
   -webkit-text-size-adjust:none;text-size-adjust:none;
 }}
-.textLayer span,.textLayer br{{
+.textLayer span{{
   color:transparent;position:absolute;white-space:pre;
   cursor:text;transform-origin:0% 0%;
+  -webkit-user-select:text;user-select:text;
 }}
-.textLayer ::selection{{background:rgba(0,120,255,0.4)}}
-#msg{{color:#ccc;font-family:sans-serif;font-size:13px;padding:30px;text-align:center}}
+.textLayer ::selection{{background:rgba(0,120,255,0.35);color:transparent}}
+#msg{{color:#ccc;font-family:sans-serif;font-size:14px;padding:40px;text-align:center}}
 </style>
 </head>
 <body>
 <div id="toolbar">
-  <button onclick="zoom(-0.25)" title="Zoom out">−</button>
+  <button onclick="zoom(-0.25)">−</button>
   <span id="zoom-label">…</span>
-  <button onclick="zoom(+0.25)" title="Zoom in">+</button>
+  <button onclick="zoom(+0.25)">+</button>
 </div>
 <div id="scroll">
   <div id="msg">Loading PDF…</div>
   <div id="viewer"></div>
 </div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
 <script>
-pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
 var scr=document.getElementById('scroll');
 scr.addEventListener('wheel',function(e){{e.stopPropagation();scr.scrollTop+=e.deltaY;}},{{passive:false}});
 
-var DPR=window.devicePixelRatio||1;
+var DPR=Math.min(window.devicePixelRatio||1, 3);
 var b64="{b64}";
 var bin=atob(b64),arr=new Uint8Array(bin.length);
 for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
 
-var pdfDoc=null,scale=1.0;
+var pdfDoc=null, scale=1.0;
 
 pdfjsLib.getDocument({{data:arr}}).promise.then(function(pdf){{
   pdfDoc=pdf;
   document.getElementById('msg').style.display='none';
   pdfDoc.getPage(1).then(function(page){{
     var nativeW=page.getViewport({{scale:1}}).width;
-    var fitW=scr.clientWidth-24;
-    scale=Math.max(0.4, fitW/nativeW);
+    scale=Math.max(0.5,(scr.clientWidth-28)/nativeW);
     renderAll();
   }});
 }}).catch(function(e){{
@@ -153,14 +153,12 @@ function renderPage(n){{
     c.style.width=vpCSS.width+'px'; c.style.height=vpCSS.height+'px';
     wrap.appendChild(c);
 
-    var ctx=c.getContext('2d');
-    ctx.imageSmoothingEnabled=false;
-    page.render({{canvasContext:ctx,viewport:vpHD}}).promise.then(function(){{
+    page.render({{canvasContext:c.getContext('2d'),viewport:vpHD}}).promise.then(function(){{
       page.getTextContent().then(function(tc){{
         var tl=document.createElement('div');
         tl.className='textLayer';
         wrap.appendChild(tl);
-        try{{pdfjsLib.renderTextLayer({{textContentSource:tc,container:tl,viewport:vpCSS,textDivs:[]}});}}catch(e){{}}
+        pdfjsLib.renderTextLayer({{textContent:tc,container:tl,viewport:vpCSS,textDivs:[]}});
       }});
       if(n<pdfDoc.numPages) renderPage(n+1);
     }});
