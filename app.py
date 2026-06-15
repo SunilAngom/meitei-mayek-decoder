@@ -99,15 +99,13 @@ def decode_char_by_char(text, mapping):
 
 
 def fix_matra_order(text):
-    """Move pre-consonant matras (ি ে ৈ) to after their consonant cluster.
-
-    Old Bengali PDF fonts store these matras before the consonant in the byte
-    stream (visual order), but Unicode requires them after the consonant.
-    """
+    """Fix Bengali character order artifacts from old PDF font encodings."""
+    # অা → আ  (font stores আ as অ + া)
+    text = text.replace('অা', 'আ')
+    # Pre-consonant matras (ি ে ৈ) stored before consonant in visual order
     bn_consonant = r'[ক-হৎড়ঢ়য়]'
     pattern = rf'([িেৈ])({bn_consonant}(?:্{bn_consonant})*)'
     return re.sub(pattern, r'\2\1', text)
-
 
 def decode_longest_match(text, mapping):
     """Longest-match decode — handles multi-char keys (used by Bengali)."""
