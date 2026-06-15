@@ -1,6 +1,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import json
+import re
 import base64
 import html as html_mod
 
@@ -95,6 +96,17 @@ def decode_char_by_char(text, mapping):
         "".join(mapping.get(ch, ch) for ch in line)
         for line in text.split("\n")
     )
+
+
+def fix_matra_order(text):
+    """Move pre-consonant matras (ি ে ৈ) to after their consonant cluster.
+
+    Old Bengali PDF fonts store these matras before the consonant in the byte
+    stream (visual order), but Unicode requires them after the consonant.
+    """
+    bn_consonant = r'[ক-হৎড়ঢ়য়]'
+    pattern = rf'([িেৈ])({bn_consonant}(?:্{bn_consonant})*)'
+    return re.sub(pattern, r'\2\1', text)
 
 
 def decode_longest_match(text, mapping):
@@ -435,7 +447,7 @@ with tab2:
             with c1:
                 if st.button("Decode", type="primary", use_container_width=True, key="bn_btn_decode"):
                     if bn_input.strip():
-                        st.session_state.bn_output = decode_longest_match(bn_input, bn_mapping)
+                        st.session_state.bn_output = fix_matra_order(decode_longest_match(bn_input, bn_mapping))
                     else:
                         st.session_state.bn_output = ""
                         st.warning("Please enter some text.")
