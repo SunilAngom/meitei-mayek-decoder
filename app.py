@@ -1,7 +1,6 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import json
-import re
 import base64
 import html as html_mod
 
@@ -98,14 +97,126 @@ def decode_char_by_char(text, mapping):
     )
 
 
-def fix_matra_order(text):
-    """Fix Bengali character order artifacts from old PDF font encodings."""
-    # অা → আ  (font stores আ as অ + া)
-    text = text.replace('অা', 'আ')
-    # Pre-consonant matras (ি ে ৈ) stored before consonant in visual order
-    bn_consonant = r'[ক-হৎড়ঢ়য়]'
-    pattern = rf'([িেৈ])({bn_consonant}(?:্{bn_consonant})*)'
-    return re.sub(pattern, r'\2\1', text)
+
+# ── Bengali classification sets (from bengali_converter_v2.py) ──────────────
+# Encoded chars that are simple consonants
+_BN_CONS = {
+    "º","ƒ","K",">","¤","Å","š","³","¹","Ò","R","W","Î",
+    "=","J","H","A","G","X","\\","U","y","g","&","*",
+}
+# Encoded chars that are conjunct clusters
+_BN_CONJ = {
+    "Ê¡","v¡û¡","C¡","S¡","B¡","Á¡","E¡","A¡","t¡","i¡",
+    "®¡","´¬","´¶","Ä","Ã","À","Ù","Ñš","ÑH","Ñ•","@ƒ",
+    "@i¡","@Ƒ","Tæ","ô¡","l¡","ç¡","Ç","‰","«","×","¡¡",
+    "ö","ø","¸","tå","‹","¢","¥",
+}
+# Encoded chars that are vowel signs (matra) — ì before these is empty
+_BN_VSIGN = {"ï","ã","å","î","í","Í","è","ü","ú"}
+# Encoded chars that are always pre-base: reorder after next token
+_BN_PRE   = {"[","î","í"}
+
+_VIRAMA = "্"  # U+09CD
+
+
+def _absorb_modifiers(tokens, j):
+    """Consume tokens whose decoded value starts with ্ (half-consonant modifiers
+    like ্র ্য ্ল that attach to the preceding consonant cluster)."""
+    extra = []
+    while j < len(tokens) and tokens[j][1].startswith(_VIRAMA):
+        extra.append(tokens[j][1])
+        j += 1
+    return extra, j
+
+
+def bengali_decode(text, mapping):
+    """Context-aware Bengali decode: tokenise then reorder.
+
+    Replaces decode_longest_match + fix_matra_order for the Bengali tab.
+    Works on the original encoded characters, so context rules for ì and ë
+    are applied before any information is lost.
+    """
+    if not mapping:
+        return text
+    max_len = max(len(k) for k in mapping)
+    result_lines = []
+
+    for line in text.split("\n"):
+        # ── Phase 1: longest-match tokenise ──────────────────────────────
+        tokens = []          # list of (orig_key, mapped_value)
+        i, n = 0, len(line)
+        while i < n:
+            matched = False
+            for length in range(min(max_len, n - i), 0, -1):
+                chunk = line[i : i + length]
+                if chunk in mapping:
+                    tokens.append((chunk, mapping[chunk]))
+                    i += length
+                    matched = True
+                    break
+            if not matched:
+                tokens.append((line[i], line[i]))
+                i += 1
+
+        # ── Phase 2: context-aware reorder ───────────────────────────────
+        out = []
+        j = 0
+        while j < len(tokens):
+            orig, mapped = tokens[j]
+
+            # ì (U+00EC) — fully context-dependent
+            #   before vowel sign  → ì is empty; vowel comes from next char
+            #   before conjunct    → conjunct + ে
+            #   before consonant   → consonant + ো
+            #   default            → empty
+            if orig == "ì":
+                if j + 1 < len(tokens):
+                    nx_o, nx_m = tokens[j + 1]
+                    if nx_o in _BN_VSIGN:
+                        out.append(nx_m)
+                        j += 2
+                    elif nx_o in _BN_CONJ or nx_o in _BN_CONS:
+                        vowel = "ে" if nx_o in _BN_CONJ else "ো"
+                        cluster = [nx_m]; j += 2
+                        extra, j = _absorb_modifiers(tokens, j)
+                        cluster.extend(extra)
+                        out.extend(cluster); out.append(vowel)
+                    else:
+                        j += 1          # empty
+                else:
+                    j += 1              # empty at end
+
+            # ë (U+00EB) — ো before consonant/conjunct, ে standalone
+            # Note: ëà sequence is in the mapping → ো (handled before ë alone)
+            elif orig == "ë":
+                if j + 1 < len(tokens):
+                    nx_o, nx_m = tokens[j + 1]
+                    if nx_o in _BN_CONS or nx_o in _BN_CONJ:
+                        cluster = [nx_m]; j += 2
+                        extra, j = _absorb_modifiers(tokens, j)
+                        cluster.extend(extra)
+                        out.extend(cluster); out.append("ো")
+                    else:
+                        out.append("ে"); j += 1
+                else:
+                    out.append("ে"); j += 1
+
+            # [ î í — always pre-base: emit next token first, then matra
+            elif orig in _BN_PRE:
+                if j + 1 < len(tokens):
+                    out.append(tokens[j + 1][1]); out.append(mapped)
+                    j += 2
+                else:
+                    out.append(mapped); j += 1
+
+            else:
+                out.append(mapped); j += 1
+
+        result_lines.append("".join(out))
+
+    # অা → আ  (font encodes আ as two chars অ + া)
+    return "\n".join(result_lines).replace("অা", "আ")
+
 
 def decode_longest_match(text, mapping):
     """Longest-match decode — handles multi-char keys (used by Bengali)."""
@@ -445,7 +556,7 @@ with tab2:
             with c1:
                 if st.button("Decode", type="primary", use_container_width=True, key="bn_btn_decode"):
                     if bn_input.strip():
-                        st.session_state.bn_output = fix_matra_order(decode_longest_match(bn_input, bn_mapping))
+                        st.session_state.bn_output = bengali_decode(bn_input, bn_mapping)
                     else:
                         st.session_state.bn_output = ""
                         st.warning("Please enter some text.")
