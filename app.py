@@ -165,37 +165,55 @@ def bengali_decode(text, mapping):
             orig, mapped = tokens[j]
 
             # ì (U+00EC) — fully context-dependent
-            #   before vowel sign  → ì is empty; vowel comes from next char
-            #   before conjunct    → conjunct + ে
-            #   before consonant   → consonant + ো
-            #   default            → empty
+            #   before vowel sign        → empty (vowel comes from next char)
+            #   before conjunct          → conjunct [+modifiers] + ে
+            #   before consonant + conj  → consonant bare (ì is font artifact)
+            #   before consonant alone   → consonant [+modifiers] + ো
+            #   default                  → empty
             if orig == "ì":
                 if j + 1 < len(tokens):
                     nx_o, nx_m = tokens[j + 1]
                     if nx_o in _BN_VSIGN:
                         out.append(nx_m)
                         j += 2
-                    elif nx_o in _BN_CONJ or nx_o in _BN_CONS:
-                        vowel = "ে" if nx_o in _BN_CONJ else "ো"
+                    elif nx_o in _BN_CONJ:
                         cluster = [nx_m]; j += 2
                         extra, j = _absorb_modifiers(tokens, j)
                         cluster.extend(extra)
-                        out.extend(cluster); out.append(vowel)
+                        out.extend(cluster); out.append("ে")
+                    elif nx_o in _BN_CONS:
+                        # Lookahead: consonant directly before a conjunct means
+                        # ì is a font artifact — emit consonant bare, no vowel
+                        if j + 2 < len(tokens) and tokens[j + 2][0] in _BN_CONJ:
+                            out.append(nx_m); j += 2
+                        else:
+                            cluster = [nx_m]; j += 2
+                            extra, j = _absorb_modifiers(tokens, j)
+                            cluster.extend(extra)
+                            out.extend(cluster); out.append("ো")
                     else:
                         j += 1          # empty
                 else:
                     j += 1              # empty at end
 
-            # ë (U+00EB) — ো before consonant/conjunct, ে standalone
-            # Note: ëà sequence is in the mapping → ো (handled before ë alone)
+            # ë (U+00EB) — context-dependent o/e matra
+            #   before consonant → consonant [+modifiers] + ো
+            #   before conjunct  → conjunct  [+modifiers] + ে  (not ো)
+            #   anything else    → ে standalone
+            # Note: ëà sequence in mapping → ো (handled before ë alone)
             elif orig == "ë":
                 if j + 1 < len(tokens):
                     nx_o, nx_m = tokens[j + 1]
-                    if nx_o in _BN_CONS or nx_o in _BN_CONJ:
+                    if nx_o in _BN_CONS:
                         cluster = [nx_m]; j += 2
                         extra, j = _absorb_modifiers(tokens, j)
                         cluster.extend(extra)
                         out.extend(cluster); out.append("ো")
+                    elif nx_o in _BN_CONJ:
+                        cluster = [nx_m]; j += 2
+                        extra, j = _absorb_modifiers(tokens, j)
+                        cluster.extend(extra)
+                        out.extend(cluster); out.append("ে")
                     else:
                         out.append("ে"); j += 1
                 else:
