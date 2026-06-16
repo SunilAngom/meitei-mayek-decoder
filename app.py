@@ -109,8 +109,12 @@ _BN_CONJ = {
     "Ê¡","v¡û¡","C¡","S¡","B¡","Á¡","E¡","A¡","t¡","i¡",
     "®¡","´¬","´¶","Ä","Ã","À","Ù","Ñš","ÑH","Ñ•","@ƒ",
     "@i¡","@Ƒ","Tæ","ô¡","l¡","ç¡","Ç","‰","«","×","¡¡",
-    "ö","ø","¸","tå","‹","¢","¥",
+    "ö","ø","¸","tå","‹","¥",
 }
+# Repha (র্): stable, non-context-dependent (see repha_rule.py).
+# ¢ always → র্ and concatenates with the following consonant/conjunct.
+# ì/ë look THROUGH repha to find the base consonant for vowel placement.
+_BN_REPHA = {"¢"}
 # Encoded chars that are vowel signs (matra) — ì before these is empty
 _BN_VSIGN = {"ï","ã","å","î","í","Í","è","ü","ú"}
 # Encoded chars that are always pre-base: reorder after next token
@@ -176,6 +180,23 @@ def bengali_decode(text, mapping):
                     if nx_o in _BN_VSIGN:
                         out.append(nx_m)
                         j += 2
+                    elif nx_o in _BN_REPHA:
+                        # Repha is transparent: ì looks through র্ to base consonant
+                        # e.g. ì¢Î → র্ + স + ে = র্সে
+                        j += 2  # skip ì and ¢
+                        repha = nx_m   # র্
+                        if j < len(tokens):
+                            base_o, base_m = tokens[j]
+                            if base_o in _BN_CONJ or base_o in _BN_CONS:
+                                vowel = "ে" if base_o in _BN_CONJ else "ো"
+                                cluster = [repha, base_m]; j += 1
+                                extra, j = _absorb_modifiers(tokens, j)
+                                cluster.extend(extra)
+                                out.extend(cluster); out.append(vowel)
+                            else:
+                                out.append(repha)   # ì empty, just emit repha
+                        else:
+                            out.append(repha)
                     elif nx_o in _BN_CONJ:
                         cluster = [nx_m]; j += 2
                         extra, j = _absorb_modifiers(tokens, j)
@@ -197,6 +218,7 @@ def bengali_decode(text, mapping):
                     j += 1              # empty at end
 
             # ë (U+00EB) — context-dependent o/e matra
+            #   before repha (¢) → look through to base consonant + ো/ে
             #   before consonant → consonant [+modifiers] + ো
             #   before conjunct  → conjunct  [+modifiers] + ে  (not ো)
             #   anything else    → ে standalone
@@ -204,7 +226,27 @@ def bengali_decode(text, mapping):
             elif orig == "ë":
                 if j + 1 < len(tokens):
                     nx_o, nx_m = tokens[j + 1]
-                    if nx_o in _BN_CONS:
+                    if nx_o in _BN_REPHA:
+                        # Repha is transparent: ë looks through র্ to base consonant
+                        j += 2  # skip ë and ¢
+                        repha = nx_m   # র্
+                        if j < len(tokens):
+                            base_o, base_m = tokens[j]
+                            if base_o in _BN_CONS:
+                                cluster = [repha, base_m]; j += 1
+                                extra, j = _absorb_modifiers(tokens, j)
+                                cluster.extend(extra)
+                                out.extend(cluster); out.append("ো")
+                            elif base_o in _BN_CONJ:
+                                cluster = [repha, base_m]; j += 1
+                                extra, j = _absorb_modifiers(tokens, j)
+                                cluster.extend(extra)
+                                out.extend(cluster); out.append("ে")
+                            else:
+                                out.append(repha); out.append("ে")
+                        else:
+                            out.append(repha); out.append("ে")
+                    elif nx_o in _BN_CONS:
                         cluster = [nx_m]; j += 2
                         extra, j = _absorb_modifiers(tokens, j)
                         cluster.extend(extra)
